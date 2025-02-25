@@ -90,8 +90,12 @@ def generate_noise_image(height, width):
 
 def generate_initial_image(device):
     # Load the Stable Diffusion model for generating the initial image
-    generation_pipeline = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4", safety_checker=None,
-                                                                  requires_safety_checker=False).to(device)
+    generation_pipeline = StableDiffusionPipeline.from_pretrained(
+    #    "CompVis/stable-diffusion-v1-4",
+        "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        safety_checker=None,
+        requires_safety_checker=False
+    ).to(device)
 
     # Generate the initial image using the prompt
     with torch.autocast("cuda"):
@@ -116,9 +120,11 @@ def generate_initial_image(device):
 
 def generate_all_image(device, initial_image):
     # Load the pre-trained Stable Diffusion Inpaint model for inpainting
-    inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained("runwayml/stable-diffusion-inpainting",
-                                                                      safety_checker=None,
-                                                                      requires_safety_checker=False).to(device)
+    inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained(
+        # "runwayml/stable-diffusion-inpainting",
+        "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        safety_checker=None,
+        requires_safety_checker=False).to(device)
 
     current_image = initial_image
 
