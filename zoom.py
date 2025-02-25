@@ -82,6 +82,12 @@ def overlay_images(source_image, inpainted_image, mask):
     return combined_rgb
 
 
+def generate_noise_image(height, width):
+    # Generate a random noise image
+    noise = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
+    return noise
+
+
 def generate_initial_image(device):
     # Load the Stable Diffusion model for generating the initial image
     generation_pipeline = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4", safety_checker=None,
@@ -133,8 +139,18 @@ def generate_all_image(device, initial_image):
         centered_image_pil = Image.fromarray(centered_image)
         centered_image_pil.save("centered_image.png", format='PNG')
 
+        # Generate a noise image
+        noise_image = generate_noise_image(current_image.shape[0], current_image.shape[1])
+        noise_image_pil = Image.fromarray(noise_image)
+        noise_image_pil.save("noise_image.png", format='PNG')
+
+        # Overlay the centered image onto the noise image
+        to_inpaint_image = overlay_images(centered_image, noise_image, mask)
+        to_inpaint_image_pil = Image.fromarray(to_inpaint_image)
+        to_inpaint_image_pil.save("to_inpaint_image.png", format='PNG')
+
         # Generate the missing part to restore the image to its original size
-        inpainted_image = generate_missing_part(inpaint_pipeline, centered_image_pil, mask_pil)
+        inpainted_image = generate_missing_part(inpaint_pipeline, to_inpaint_image_pil, mask_pil)
         inpainted_pil = Image.fromarray(inpainted_image)
         inpainted_pil.save("inpainted.png", format='PNG')
 
