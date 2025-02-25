@@ -1,0 +1,11 @@
+{
+  "prompt": "beautiful landscape, photography, photorealism",
+  "output_dir": ".",
+  "height": 512,
+  "width": 512,
+  "strength": 1,
+  "guidance_scale": 7.5,
+  "num_inference_steps": 30,
+  "num_iterations": 100
+}
+
