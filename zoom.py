@@ -35,18 +35,7 @@ def create_inverted_centered_mask(image, mask_size_ratio):
     return mask
 
 
-def generate_missing_part(image, inpaint_pipeline):
-    # Create an inverted centered mask for the missing part
-    mask = create_inverted_centered_mask(image, mask_size_ratio=config.data["resize_ratio"]-config.data["mask_resize_margin"])
-
-    # Convert image and mask to PIL format
-    image_pil = Image.fromarray(image)
-    mask_pil = Image.fromarray(mask)
-
-    # Save the intermediate images for debugging
-    image_pil.save("intermediate_image.png", format='PNG')
-    mask_pil.save("intermediate_mask.png", format='PNG')
-
+def generate_missing_part(inpaint_pipeline, image_pil, mask_pil):
     # Generate the missing part using the inpaint pipeline
     result = inpaint_pipeline(
         height=config.data["height"],
@@ -62,7 +51,7 @@ def generate_missing_part(image, inpaint_pipeline):
     # Convert the result back to a numpy array
     result_np = np.array(result)
 
-    return result_np, mask
+    return result_np
 
 
 def overlay_images(source_image, inpainted_image, mask):
@@ -93,10 +82,7 @@ def overlay_images(source_image, inpainted_image, mask):
     return combined_rgb
 
 
-def main():
-    # Check if GPU is available and set the device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
+def generate_initial_image(device):
     # Load the Stable Diffusion model for generating the initial image
     generation_pipeline = StableDiffusionPipeline.from_pretrained("CompVis/stable-diffusion-v1-4", safety_checker=None,
                                                                   requires_safety_checker=False).to(device)
@@ -111,12 +97,18 @@ def main():
             guidance_scale=config.data["guidance_scale"],
             num_inference_steps=config.data["num_inference_steps"]
         ).images[0]
+
+    initial_image.save("initial_image.png", format='PNG')
     initial_image = np.array(initial_image)
 
     # Free up memory by deleting the generation pipeline
     del generation_pipeline
     torch.cuda.empty_cache()
 
+    return initial_image
+
+
+def generate_all_image(device, initial_image):
     # Load the pre-trained Stable Diffusion Inpaint model for inpainting
     inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained("runwayml/stable-diffusion-inpainting",
                                                                       safety_checker=None,
@@ -124,25 +116,48 @@ def main():
 
     current_image = initial_image
 
+    # Create an inverted centered mask for the missing part
+    mask = create_inverted_centered_mask(current_image, mask_size_ratio=config.data["resize_ratio"] - config.data[
+        "mask_resize_margin"])
+    mask_pil = Image.fromarray(mask)
+    mask_pil.save("mask.png", format='PNG')
+
     for i in range(config.data["num_iterations"]):
-        # Resize the image to 95% of its size
+        # Resize the image
         resized_image = resize_image(current_image, config.data["resize_ratio"])
+        resized_image_pil = Image.fromarray(resized_image)
+        resized_image_pil.save("resized_image.png", format='PNG')
 
         # Center the resized image within the original image dimensions
         centered_image = center_image(resized_image, current_image.shape[:2])
+        centered_image_pil = Image.fromarray(centered_image)
+        centered_image_pil.save("centered_image.png", format='PNG')
 
         # Generate the missing part to restore the image to its original size
-        final_image, mask = generate_missing_part(centered_image, inpaint_pipeline)
+        inpainted_image = generate_missing_part(inpaint_pipeline, centered_image_pil, mask_pil)
+        inpainted_pil = Image.fromarray(inpainted_image)
+        inpainted_pil.save("inpainted.png", format='PNG')
 
         # Overlay the source image onto the inpainted image
-        final_image = overlay_images(centered_image, final_image, mask)
+        final_image = overlay_images(centered_image, inpainted_image, mask)
 
         # Save the output image with an index
         output_image = Image.fromarray(final_image)
-        output_image.save(f"{config.data['output_dir']}/output_image_{i}.png", format='PNG')  # Explicitly specify the format
+        output_image.save(f"{config.data['output_dir']}/output_image_{i}.png",
+                          format='PNG')  # Explicitly specify the format
 
         # Use the output image as the input for the next iteration
-        current_image = np.array(output_image)
+        current_image = final_image
+
+
+def main():
+    # Check if GPU is available and set the device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Using device: ", device)
+
+    initial_image = generate_initial_image(device)
+
+    generate_all_image(device, initial_image)
 
 
 if __name__ == "__main__":

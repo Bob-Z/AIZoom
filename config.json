@@ -7,7 +7,7 @@
   "guidance_scale": 7.5,
   "num_inference_steps": 30,
   "num_iterations": 100,
-  "resize_ratio": 0.99,
+  "resize_ratio": 0.90,
   "mask_resize_margin": 0.05
 }
 
