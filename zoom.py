@@ -24,7 +24,7 @@ def center_image(image, target_size):
     return centered_image
 
 
-def create_inverted_centered_mask(image, mask_size_ratio=0.95):
+def create_inverted_centered_mask(image, mask_size_ratio):
     height, width = image.shape[:2]
     mask_height = int(height * mask_size_ratio)
     mask_width = int(width * mask_size_ratio)
@@ -37,7 +37,7 @@ def create_inverted_centered_mask(image, mask_size_ratio=0.95):
 
 def generate_missing_part(image, inpaint_pipeline):
     # Create an inverted centered mask for the missing part
-    mask = create_inverted_centered_mask(image, mask_size_ratio=0.95)
+    mask = create_inverted_centered_mask(image, mask_size_ratio=config.data["resize_ratio"]-config.data["mask_resize_margin"])
 
     # Convert image and mask to PIL format
     image_pil = Image.fromarray(image)
@@ -126,7 +126,7 @@ def main():
 
     for i in range(config.data["num_iterations"]):
         # Resize the image to 95% of its size
-        resized_image = resize_image(current_image, 0.95)
+        resized_image = resize_image(current_image, config.data["resize_ratio"])
 
         # Center the resized image within the original image dimensions
         centered_image = center_image(resized_image, current_image.shape[:2])

@@ -3,9 +3,11 @@
   "output_dir": ".",
   "height": 512,
   "width": 512,
-  "strength": 1,
+  "strength": 1.0,
   "guidance_scale": 7.5,
   "num_inference_steps": 30,
-  "num_iterations": 100
+  "num_iterations": 100,
+  "resize_ratio": 0.99,
+  "mask_resize_margin": 0.05
 }
 
