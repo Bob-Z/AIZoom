@@ -4,6 +4,8 @@ from PIL import Image
 import torch
 from diffusers import StableDiffusionPipeline
 from diffusers import StableDiffusionInpaintPipeline
+from diffusers import AutoPipelineForText2Image
+from diffusers import AutoPipelineForInpainting
 import config
 
 
@@ -89,16 +91,87 @@ def generate_noise_image(height, width):
 
 
 def generate_initial_image(device):
+    initial_image=None
+    generation_pipeline=None
+
     # Load the Stable Diffusion model for generating the initial image
-    generation_pipeline = StableDiffusionPipeline.from_pretrained(
-    #    "CompVis/stable-diffusion-v1-4",
-        "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    generation_pipeline = AutoPipelineForText2Image.from_pretrained(
+        #    "CompVis/stable-diffusion-v1-4",
+        #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        #"RunDiffusion/Juggernaut-XL-v9",
         safety_checker=None,
-        requires_safety_checker=False
-    ).to(device)
+        requires_safety_checker=False,
+        torch_dtype=torch.float16,
+        variant='fp16'
+    )
 
     # Generate the initial image using the prompt
-    with torch.autocast("cuda"):
+    try:
+        generation_pipeline.to("cuda")
+        print("Using fastest device CUDA")
+
+        initial_image = generation_pipeline(
+            height=config.data["height"],
+            width=config.data["width"],
+            prompt=config.data["prompt"],
+            strength=config.data["strength"],
+            guidance_scale=config.data["guidance_scale"],
+            num_inference_steps=config.data["num_inference_steps"]
+        ).images[0]
+
+    except torch.OutOfMemoryError:
+        print("Not enought GPU memory to use CUDA")
+        del generation_pipeline
+        generation_pipeline = None
+
+    if generation_pipeline is None:
+        try:
+            # Load the Stable Diffusion model for generating the initial image
+            generation_pipeline = AutoPipelineForText2Image.from_pretrained(
+                #    "CompVis/stable-diffusion-v1-4",
+                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                "stabilityai/stable-diffusion-xl-base-1.0",
+                #"RunDiffusion/Juggernaut-XL-v9",
+                safety_checker=None,
+                requires_safety_checker=False,
+                torch_dtype=torch.float16,
+                variant='fp16'
+            )
+
+            generation_pipeline.enable_model_cpu_offload()
+
+            initial_image = generation_pipeline(
+                height=config.data["height"],
+                width=config.data["width"],
+                prompt=config.data["prompt"],
+                strength=config.data["strength"],
+                guidance_scale=config.data["guidance_scale"],
+                num_inference_steps=config.data["num_inference_steps"]
+            ).images[0]
+
+            print("Using slower and less GPU RAM consuming method: model CPU offload")
+        except torch.OutOfMemoryError:
+            del generation_pipeline
+            generation_pipeline = None
+
+    if generation_pipeline is None:
+        print("Not enough GPU memory, using slowest CPU only method")
+        # Load the Stable Diffusion model for generating the initial image
+        generation_pipeline = AutoPipelineForText2Image.from_pretrained(
+            #    "CompVis/stable-diffusion-v1-4",
+            #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            #"RunDiffusion/Juggernaut-XL-v9",
+            safety_checker=None,
+            requires_safety_checker=False,
+            # Not compatible with "cpu" device
+            #torch_dtype=torch.float16,
+            #variant='fp16'
+        )
+
+        generation_pipeline.to("cpu")
+
         initial_image = generation_pipeline(
             height=config.data["height"],
             width=config.data["width"],
@@ -119,12 +192,20 @@ def generate_initial_image(device):
 
 
 def generate_all_image(device, initial_image):
+    print("Start generating inpaint images")
     # Load the pre-trained Stable Diffusion Inpaint model for inpainting
-    inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained(
+    inpaint_pipeline = AutoPipelineForInpainting.from_pretrained(
         # "runwayml/stable-diffusion-inpainting",
-        "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        # "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
         safety_checker=None,
-        requires_safety_checker=False).to(device)
+        requires_safety_checker=False,
+        torch_dtype=torch.float16,
+        variant='fp16'
+    )
+
+    #inpaint_pipeline.to(device)
+    inpaint_pipeline.enable_model_cpu_offload()
 
     current_image = initial_image
 
@@ -175,7 +256,7 @@ def generate_all_image(device, initial_image):
 def main():
     # Check if GPU is available and set the device
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using device: ", device)
+    print("Best device available: ", device)
 
     initial_image = generate_initial_image(device)
 
