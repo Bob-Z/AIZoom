@@ -1,3 +1,5 @@
+import gc
+
 import cv2
 import numpy as np
 from PIL import Image
@@ -90,89 +92,24 @@ def generate_noise_image(height, width):
     return noise
 
 
-def generate_initial_image(device):
-    initial_image=None
-    generation_pipeline=None
-
-    # Load the Stable Diffusion model for generating the initial image
-    generation_pipeline = AutoPipelineForText2Image.from_pretrained(
-        #    "CompVis/stable-diffusion-v1-4",
-        #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
-        "stabilityai/stable-diffusion-xl-base-1.0",
-        #"RunDiffusion/Juggernaut-XL-v9",
-        safety_checker=None,
-        requires_safety_checker=False,
-        torch_dtype=torch.float16,
-        variant='fp16'
-    )
-
-    # Generate the initial image using the prompt
+def get_image_cuda(pipeline=None):
+    print("\nTrying CUDA device\n")
     try:
-        generation_pipeline.to("cuda")
-        print("Using fastest device CUDA")
-
-        initial_image = generation_pipeline(
-            height=config.data["height"],
-            width=config.data["width"],
-            prompt=config.data["prompt"],
-            strength=config.data["strength"],
-            guidance_scale=config.data["guidance_scale"],
-            num_inference_steps=config.data["num_inference_steps"]
-        ).images[0]
-
-    except torch.OutOfMemoryError:
-        print("Not enought GPU memory to use CUDA")
-        del generation_pipeline
-        generation_pipeline = None
-
-    if generation_pipeline is None:
-        try:
-            # Load the Stable Diffusion model for generating the initial image
-            generation_pipeline = AutoPipelineForText2Image.from_pretrained(
+        if pipeline is None:
+            pipeline = AutoPipelineForText2Image.from_pretrained(
                 #    "CompVis/stable-diffusion-v1-4",
                 #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
                 "stabilityai/stable-diffusion-xl-base-1.0",
-                #"RunDiffusion/Juggernaut-XL-v9",
-                safety_checker=None,
-                requires_safety_checker=False,
+                # "RunDiffusion/Juggernaut-XL-v9",
+                #safety_checker=None,
+                #requires_safety_checker=False,
                 torch_dtype=torch.float16,
                 variant='fp16'
             )
 
-            generation_pipeline.enable_model_cpu_offload()
+            pipeline.to('cuda')
 
-            initial_image = generation_pipeline(
-                height=config.data["height"],
-                width=config.data["width"],
-                prompt=config.data["prompt"],
-                strength=config.data["strength"],
-                guidance_scale=config.data["guidance_scale"],
-                num_inference_steps=config.data["num_inference_steps"]
-            ).images[0]
-
-            print("Using slower and less GPU RAM consuming method: model CPU offload")
-        except torch.OutOfMemoryError:
-            del generation_pipeline
-            generation_pipeline = None
-
-    if generation_pipeline is None:
-        print("Not enough GPU memory, using slowest CPU only method")
-        # Load the Stable Diffusion model for generating the initial image
-        generation_pipeline = AutoPipelineForText2Image.from_pretrained(
-            #    "CompVis/stable-diffusion-v1-4",
-            #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
-            "stabilityai/stable-diffusion-xl-base-1.0",
-            #"RunDiffusion/Juggernaut-XL-v9",
-            safety_checker=None,
-            requires_safety_checker=False,
-            # Not compatible with "cpu" device
-            #torch_dtype=torch.float16,
-            #variant='fp16'
-        )
-
-        generation_pipeline.to("cpu")
-
-        initial_image = generation_pipeline(
+        image = pipeline(
             height=config.data["height"],
             width=config.data["width"],
             prompt=config.data["prompt"],
@@ -181,12 +118,107 @@ def generate_initial_image(device):
             num_inference_steps=config.data["num_inference_steps"]
         ).images[0]
 
+        return image
+    except:
+        if pipeline is not None:
+            del pipeline
+            gc.collect()
+        print("")
+        print("Error using CUDA device")
+        print("")
+        return None
+
+
+def get_image_cpu_offload(pipeline=None):
+    print("\nTrying CUDA device with CPU offload\n")
+    try:
+        if pipeline is None:
+            pipeline = AutoPipelineForText2Image.from_pretrained(
+                #    "CompVis/stable-diffusion-v1-4",
+                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                "stabilityai/stable-diffusion-xl-base-1.0",
+                # "RunDiffusion/Juggernaut-XL-v9",
+                #safety_checker=None,
+                #requires_safety_checker=False,
+                torch_dtype=torch.float16,
+                variant='fp16'
+            )
+
+            pipeline.enable_model_cpu_offload()
+
+        image = pipeline(
+            height=config.data["height"],
+            width=config.data["width"],
+            prompt=config.data["prompt"],
+            strength=config.data["strength"],
+            guidance_scale=config.data["guidance_scale"],
+            num_inference_steps=config.data["num_inference_steps"]
+        ).images[0]
+
+        return image
+    except:
+        if pipeline is not None:
+            del pipeline
+            gc.collect()
+        print("")
+        print("Error using CUDA with CPU offload")
+        print("")
+        return None
+
+
+def get_image_cpu(pipeline=None):
+    print("\nTrying CPU device\n")
+    try:
+        if pipeline is None:
+            pipeline = AutoPipelineForText2Image.from_pretrained(
+                #    "CompVis/stable-diffusion-v1-4",
+                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                "stabilityai/stable-diffusion-xl-base-1.0",
+                # "RunDiffusion/Juggernaut-XL-v9",
+                safety_checker=None,
+                requires_safety_checker=False,
+            )
+
+            pipeline.to("cpu")
+
+        image = pipeline(
+            height=config.data["height"],
+            width=config.data["width"],
+            prompt=config.data["prompt"],
+            strength=config.data["strength"],
+            guidance_scale=config.data["guidance_scale"],
+            num_inference_steps=config.data["num_inference_steps"]
+        ).images[0]
+
+        return image
+    except:
+        if pipeline is not None:
+            del pipeline
+            gc.collect()
+        print("")
+        print("Error using CPU device")
+        print("")
+
+        return None
+
+
+def get_image(pipeline=None, device="cuda", cpu_offload=False):
+    image = get_image_cuda()
+    if image is None:
+        image = get_image_cpu_offload()
+        if image is None:
+            image = get_image_cpu()
+
+    return image
+
+
+def generate_initial_image():
+    initial_image = get_image()
+    if initial_image is None:
+        raise "Error can't generate initial image"
+
     initial_image.save("initial_image.png", format='PNG')
     initial_image = np.array(initial_image)
-
-    # Free up memory by deleting the generation pipeline
-    del generation_pipeline
-    torch.cuda.empty_cache()
 
     return initial_image
 
@@ -204,7 +236,7 @@ def generate_all_image(device, initial_image):
         variant='fp16'
     )
 
-    #inpaint_pipeline.to(device)
+    # inpaint_pipeline.to(device)
     inpaint_pipeline.enable_model_cpu_offload()
 
     current_image = initial_image
@@ -258,7 +290,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Best device available: ", device)
 
-    initial_image = generate_initial_image(device)
+    initial_image = generate_initial_image()
 
     generate_all_image(device, initial_image)
 
