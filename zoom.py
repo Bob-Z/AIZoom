@@ -1,14 +1,8 @@
-import gc
-
 import cv2
-import numpy as np
 from PIL import Image
-import torch
-from diffusers import StableDiffusionPipeline
-from diffusers import StableDiffusionInpaintPipeline
-from diffusers import AutoPipelineForText2Image
-from diffusers import AutoPipelineForInpainting
 import config
+import ai
+import numpy as np
 
 
 def resize_image(image, scale_factor):
@@ -39,23 +33,23 @@ def create_inverted_centered_mask(image, mask_size_ratio):
     return mask
 
 
-def generate_missing_part(inpaint_pipeline, image_pil, mask_pil):
+def get_inpaint_image(image_pil, mask_pil, pipeline=None):
+    image, pipeline = ai.get_inpaint_image_cuda(image_pil, mask_pil, pipeline)
+    if image is None:
+        image, pipeline = ai.get_inpaint_image_cpu_offload(image_pil, mask_pil, pipeline)
+        if image is None:
+            image, pipeline = ai.get_inpaint_image_cpu(image_pil, mask_pil, pipeline)
+
+    return image, pipeline
+
+
+def generate_missing_part(image_pil, mask_pil, pipeline):
     # Generate the missing part using the inpaint pipeline
-    result = inpaint_pipeline(
-        height=config.data["height"],
-        width=config.data["width"],
-        prompt=config.data["prompt"],
-        image=image_pil,
-        mask_image=mask_pil,
-        strength=config.data["strength"],
-        guidance_scale=config.data["guidance_scale"],
-        num_inference_steps=config.data["num_inference_steps"]
-    ).images[0]
-
+    image, pipeline = get_inpaint_image(image_pil, mask_pil, pipeline)
     # Convert the result back to a numpy array
-    result_np = np.array(result)
+    result_np = np.array(image)
 
-    return result_np
+    return result_np, pipeline
 
 
 def overlay_images(source_image, inpainted_image, mask):
@@ -92,122 +86,12 @@ def generate_noise_image(height, width):
     return noise
 
 
-def get_image_cuda(pipeline=None):
-    print("\nTrying CUDA device\n")
-    try:
-        if pipeline is None:
-            pipeline = AutoPipelineForText2Image.from_pretrained(
-                #    "CompVis/stable-diffusion-v1-4",
-                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                "stabilityai/stable-diffusion-xl-base-1.0",
-                # "RunDiffusion/Juggernaut-XL-v9",
-                #safety_checker=None,
-                #requires_safety_checker=False,
-                torch_dtype=torch.float16,
-                variant='fp16'
-            )
-
-            pipeline.to('cuda')
-
-        image = pipeline(
-            height=config.data["height"],
-            width=config.data["width"],
-            prompt=config.data["prompt"],
-            strength=config.data["strength"],
-            guidance_scale=config.data["guidance_scale"],
-            num_inference_steps=config.data["num_inference_steps"]
-        ).images[0]
-
-        return image
-    except:
-        if pipeline is not None:
-            del pipeline
-            gc.collect()
-        print("")
-        print("Error using CUDA device")
-        print("")
-        return None
-
-
-def get_image_cpu_offload(pipeline=None):
-    print("\nTrying CUDA device with CPU offload\n")
-    try:
-        if pipeline is None:
-            pipeline = AutoPipelineForText2Image.from_pretrained(
-                #    "CompVis/stable-diffusion-v1-4",
-                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                "stabilityai/stable-diffusion-xl-base-1.0",
-                # "RunDiffusion/Juggernaut-XL-v9",
-                #safety_checker=None,
-                #requires_safety_checker=False,
-                torch_dtype=torch.float16,
-                variant='fp16'
-            )
-
-            pipeline.enable_model_cpu_offload()
-
-        image = pipeline(
-            height=config.data["height"],
-            width=config.data["width"],
-            prompt=config.data["prompt"],
-            strength=config.data["strength"],
-            guidance_scale=config.data["guidance_scale"],
-            num_inference_steps=config.data["num_inference_steps"]
-        ).images[0]
-
-        return image
-    except:
-        if pipeline is not None:
-            del pipeline
-            gc.collect()
-        print("")
-        print("Error using CUDA with CPU offload")
-        print("")
-        return None
-
-
-def get_image_cpu(pipeline=None):
-    print("\nTrying CPU device\n")
-    try:
-        if pipeline is None:
-            pipeline = AutoPipelineForText2Image.from_pretrained(
-                #    "CompVis/stable-diffusion-v1-4",
-                #    "stable-diffusion-v1-5/stable-diffusion-v1-5",
-                "stabilityai/stable-diffusion-xl-base-1.0",
-                # "RunDiffusion/Juggernaut-XL-v9",
-                safety_checker=None,
-                requires_safety_checker=False,
-            )
-
-            pipeline.to("cpu")
-
-        image = pipeline(
-            height=config.data["height"],
-            width=config.data["width"],
-            prompt=config.data["prompt"],
-            strength=config.data["strength"],
-            guidance_scale=config.data["guidance_scale"],
-            num_inference_steps=config.data["num_inference_steps"]
-        ).images[0]
-
-        return image
-    except:
-        if pipeline is not None:
-            del pipeline
-            gc.collect()
-        print("")
-        print("Error using CPU device")
-        print("")
-
-        return None
-
-
-def get_image(pipeline=None, device="cuda", cpu_offload=False):
-    image = get_image_cuda()
+def get_image():
+    image = ai.get_image_cuda()
     if image is None:
-        image = get_image_cpu_offload()
+        image = ai.get_image_cpu_offload()
         if image is None:
-            image = get_image_cpu()
+            image = ai.get_image_cpu()
 
     return image
 
@@ -223,21 +107,8 @@ def generate_initial_image():
     return initial_image
 
 
-def generate_all_image(device, initial_image):
+def generate_all_image(initial_image):
     print("Start generating inpaint images")
-    # Load the pre-trained Stable Diffusion Inpaint model for inpainting
-    inpaint_pipeline = AutoPipelineForInpainting.from_pretrained(
-        # "runwayml/stable-diffusion-inpainting",
-        # "stable-diffusion-v1-5/stable-diffusion-inpainting",
-        "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
-        safety_checker=None,
-        requires_safety_checker=False,
-        torch_dtype=torch.float16,
-        variant='fp16'
-    )
-
-    # inpaint_pipeline.to(device)
-    inpaint_pipeline.enable_model_cpu_offload()
 
     current_image = initial_image
 
@@ -246,6 +117,8 @@ def generate_all_image(device, initial_image):
         "mask_resize_margin"])
     mask_pil = Image.fromarray(mask)
     mask_pil.save("mask.png", format='PNG')
+
+    pipeline = None
 
     for i in range(config.data["num_iterations"]):
         # Resize the image
@@ -269,7 +142,7 @@ def generate_all_image(device, initial_image):
         to_inpaint_image_pil.save("to_inpaint_image.png", format='PNG')
 
         # Generate the missing part to restore the image to its original size
-        inpainted_image = generate_missing_part(inpaint_pipeline, to_inpaint_image_pil, mask_pil)
+        inpainted_image, pipeline = generate_missing_part(to_inpaint_image_pil, mask_pil, pipeline)
         inpainted_pil = Image.fromarray(inpainted_image)
         inpainted_pil.save("inpainted.png", format='PNG')
 
@@ -286,13 +159,11 @@ def generate_all_image(device, initial_image):
 
 
 def main():
-    # Check if GPU is available and set the device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Best device available: ", device)
+    ai.print_best_device()
 
     initial_image = generate_initial_image()
 
-    generate_all_image(device, initial_image)
+    generate_all_image(initial_image)
 
 
 if __name__ == "__main__":
